@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 
+import { BrainSearchService } from "../services/brainSearchService";
 import { BrainSyncService } from "../services/brainSyncService";
 
 const brainRoutes = new Hono();
@@ -39,6 +40,45 @@ brainRoutes.post("/sync", async (c) => {
     return c.json(
       {
         error: "Failed to sync personal brain",
+      },
+      500
+    );
+  }
+});
+
+brainRoutes.get("/search", async (c) => {
+  const query = c.req.query("q");
+
+  if (!query) {
+    return c.json(
+      {
+        error:
+          "Query parameter 'q' is required",
+      },
+      400
+    );
+  }
+
+  try {
+    const searchService =
+      new BrainSearchService();
+
+    const result =
+      await searchService.search(query);
+
+    return c.json({
+      query,
+      result,
+    });
+  } catch (error) {
+    console.error(
+      "Brain search failed:",
+      error
+    );
+
+    return c.json(
+      {
+        error: "Failed to search personal brain",
       },
       500
     );
