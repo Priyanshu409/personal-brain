@@ -9,6 +9,8 @@ export interface BrainDocument {
 
   url?: string;
 
+  mimeType?: string;
+
   createdAt?: string;
   updatedAt?: string;
 

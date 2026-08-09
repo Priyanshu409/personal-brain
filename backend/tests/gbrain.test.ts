@@ -1,4 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import {
+  describe,
+  expect,
+  test,
+} from "bun:test";
 
 import { GBrainService } from "../src/services/gbrainService";
 
@@ -11,7 +15,7 @@ describe("GBrain Service", () => {
       const result = await service.search("test");
 
       expect(result).toBeDefined();
-      expect(typeof result.raw).toBe("string");
+      expect(typeof result).toBe("string");
     },
     15000
   );
