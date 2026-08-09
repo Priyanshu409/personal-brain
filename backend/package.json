@@ -10,12 +10,12 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "googleapis": "^174.0.1",
     "hono": "^4.13.1"
   },
-
   "scripts": {
-  "dev": "bun --hot src/index.ts",
-  "start": "bun src/index.ts",
-  "test": "bun test"
+    "dev": "bun --hot src/index.ts",
+    "start": "bun src/index.ts",
+    "test": "bun test"
   }
 }

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import authRoutes from "./routes/authRoutes";
 
 const app = new Hono();
 
@@ -16,5 +17,7 @@ app.get("/health", (c) => {
     service: "personal-brain-api",
   });
 });
+
+app.route("/auth", authRoutes);
 
 export default app;
