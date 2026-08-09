@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import authRoutes from "./routes/authRoutes";
+import gmailRoutes from "./routes/gmailRoutes";
 
 const app = new Hono();
 
@@ -19,5 +20,7 @@ app.get("/health", (c) => {
 });
 
 app.route("/auth", authRoutes);
+
+app.route("/gmail", gmailRoutes);
 
 export default app;
