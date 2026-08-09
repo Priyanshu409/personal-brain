@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import authRoutes from "./routes/authRoutes";
 import gmailRoutes from "./routes/gmailRoutes";
 import driveRoutes from "./routes/driveRoutes";
+import brainRoutes from "./routes/brainRoutes";
 
 const app = new Hono();
 
@@ -25,5 +26,7 @@ app.route("/auth", authRoutes);
 app.route("/gmail", gmailRoutes);
 
 app.route("/drive", driveRoutes);
+
+app.route("/brain", brainRoutes);
 
 export default app;
