@@ -16,3 +16,11 @@ export interface BrainDocument {
 
   metadata: Record<string, unknown>;
 }
+
+export interface BrainSearchResult {
+  score: number;
+  id: string;
+  source: BrainSource;
+  title: string;
+  content: string;
+}

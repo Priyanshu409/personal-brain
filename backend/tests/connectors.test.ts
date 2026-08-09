@@ -13,6 +13,14 @@ const driveState = {
   lastSearchQuery: "",
 };
 
+const { GmailConnector } = await import(
+  "../src/connectors/GmailConnector"
+);
+
+const { DriveConnector } = await import(
+  "../src/connectors/DriveConnector"
+);
+
 const gmailMessages = [
   {
     id: "gmail-001",
@@ -182,15 +190,20 @@ mock.module(
   () => ({
     createDriveClient: async () =>
       fakeDriveClient,
+
+    getDriveFileContent: async (
+      _drive: unknown,
+      file: { id?: string }
+    ) => {
+      const contents: Record<string, string> = {
+        "drive-001": "Resume content",
+        "drive-002":
+          "Interview notes and Spring Boot preparation",
+      };
+
+      return contents[file.id ?? ""] ?? "";
+    },
   })
-);
-
-const { GmailConnector } = await import(
-  "../src/connectors/GmailConnector"
-);
-
-const { DriveConnector } = await import(
-  "../src/connectors/DriveConnector"
 );
 
 describe("GmailConnector", () => {

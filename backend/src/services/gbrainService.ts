@@ -8,7 +8,20 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { BrainDocument } from "../types/brain";
+import type {
+  BrainDocument,
+  BrainSearchResult,
+} from "../types/brain";
+
+import {
+  createGmailClient,
+  getGmailMessageContent,
+} from "./gmailService";
+
+import {
+  createDriveClient,
+  getDriveFileContent,
+} from "./driveService";
 
 export class GBrainService {
   private readonly gbrainCommand = "gbrain";
@@ -22,7 +35,7 @@ export class GBrainService {
         this.gbrainCommand,
         args,
         {
-          shell: true,
+          shell: false,
           windowsHide: true,
           env: {
             ...process.env,
@@ -54,43 +67,268 @@ export class GBrainService {
               }`
             )
           );
-
           return;
         }
 
         resolve(stdout.trim());
       });
     });
-  }
+}
 
   /**
-   * Search the local GBrain.
-   *
-   * Currently uses GBrain keyword search,
-   * which does not require embeddings.
+   * Search the local GBrain and enrich
+   * Gmail/Drive results with their real content.
    */
-  async search(query: string): Promise<string> {
+  async search(
+    query: string
+  ): Promise<{
+    query: string;
+    count: number;
+    results: BrainSearchResult[];
+  }> {
     if (!query.trim()) {
-      throw new Error(
-        "Search query is required"
-      );
+      throw new Error("Search query is required");
     }
 
-    return this.run([
+    const raw = await this.run([
       "search",
       query,
     ]);
+
+    const results = this.parseResults(raw);
+
+    const gmail = await createGmailClient();
+    const drive = await createDriveClient();
+
+    for (const result of results) {
+      try {
+        /*
+         * Gmail enrichment
+         */
+        if (result.source === "gmail") {
+          const messageId = result.id.replace(
+            /^gmail\/gmail-/,
+            ""
+          );
+
+          result.content =
+            await getGmailMessageContent(
+              gmail,
+              messageId
+            );
+        }
+
+        /*
+         * Google Drive enrichment
+         */
+        if (result.source === "drive") {
+          const fileId = result.id
+            .replace(/^drive\//, "")
+            .replace(/^drive-/, "");
+
+          console.log(
+            "Trying Google Drive file ID:",
+            fileId
+          );
+
+          try {
+            /*
+             * First try the ID stored in GBrain.
+             */
+            const response =
+              await drive.files.get({
+                fileId,
+                fields:
+                  "id,name,mimeType,webViewLink,createdTime,modifiedTime",
+              });
+
+            const file = response.data;
+
+            console.log(
+              "Drive file found by ID:",
+              {
+                id: file.id,
+                name: file.name,
+                mimeType: file.mimeType,
+              }
+            );
+
+            result.content =
+              await getDriveFileContent(
+                drive,
+                file
+              );
+          } catch (error: any) {
+            /*
+             * If GBrain contains a stale/inaccessible
+             * Drive ID, try finding the file by title.
+             */
+            if (
+              error?.code !== 404 &&
+              error?.response?.status !== 404
+            ) {
+              throw error;
+            }
+
+            console.warn(
+              `Drive ID not accessible: ${fileId}`
+            );
+
+            console.log(
+              `Trying Drive filename lookup: ${result.title}`
+            );
+
+            const escapedTitle =
+              result.title.replace(
+                /'/g,
+                "\\'"
+              );
+
+            const lookup =
+              await drive.files.list({
+                q: `'root' in parents and name = '${escapedTitle}' and trashed = false`,
+                fields:
+                  "files(id,name,mimeType,webViewLink,createdTime,modifiedTime)",
+                pageSize: 10,
+              });
+
+            const files =
+              lookup.data.files ?? [];
+
+            /*
+             * If root lookup doesn't find it,
+             * search across accessible Drive files.
+             */
+            let matchingFile =
+              files.find(
+                (file) =>
+                  file.name === result.title
+              );
+
+            if (!matchingFile) {
+              const broadLookup =
+                await drive.files.list({
+                  q: `name = '${escapedTitle}' and trashed = false`,
+                  fields:
+                    "files(id,name,mimeType,webViewLink,createdTime,modifiedTime)",
+                  pageSize: 10,
+                });
+
+              matchingFile =
+                (
+                  broadLookup.data.files ?? []
+                ).find(
+                  (file) =>
+                    file.name ===
+                    result.title
+                );
+            }
+
+            if (!matchingFile?.id) {
+              console.warn(
+                `Drive file not found by title: ${result.title}`
+              );
+
+              result.content = "";
+              continue;
+            }
+
+            console.log(
+              "Drive file found by title:",
+              {
+                id: matchingFile.id,
+                name: matchingFile.name,
+                mimeType:
+                  matchingFile.mimeType,
+              }
+            );
+
+            result.content =
+              await getDriveFileContent(
+                drive,
+                matchingFile
+              );
+          }
+        }
+      } catch (error) {
+        console.warn(
+          `Failed to enrich ${result.id}:`,
+          error
+        );
+
+        result.content = "";
+      }
+    }
+
+    return {
+      query,
+      count: results.length,
+      results,
+    };
+  }
+
+  /**
+   * Parse GBrain CLI search output.
+   */
+  private parseResults(
+    raw: string
+  ): BrainSearchResult[] {
+    const lines = raw.split("\n");
+
+    const results: BrainSearchResult[] = [];
+
+    for (const line of lines) {
+      const match = line.match(
+        /^\[([\d.]+)\]\s+(\S+)\s+--\s+#\s+(.+)$/
+      );
+
+      if (!match) {
+        continue;
+      }
+
+      const scoreText = match[1];
+      const id = match[2];
+      const title = match[3];
+
+      if (!scoreText || !id || !title) {
+        continue;
+      }
+
+      const score = Number(scoreText);
+
+      if (Number.isNaN(score)) {
+        continue;
+      }
+
+      const source =
+        id.startsWith("gmail/")
+          ? "gmail"
+          : id.startsWith("drive/")
+            ? "drive"
+            : null;
+
+      if (!source) {
+        continue;
+      }
+
+      results.push({
+        score,
+        id,
+        source,
+        title,
+        content: "",
+      });
+    }
+
+    return results;
   }
 
   /**
    * Ingest a BrainDocument into GBrain.
    *
-   * We intentionally use:
+   * Embeddings are generated separately with:
    *
-   *   gbrain import <directory> --no-embed
-   *
-   * because the current development environment
-   * does not have OpenAI embedding credits.
+   * gbrain embed --stale
    */
   async ingest(
     document: BrainDocument
