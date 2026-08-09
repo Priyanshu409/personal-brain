@@ -1,0 +1,20 @@
+import { Hono } from "hono";
+
+const app = new Hono();
+
+app.get("/", (c) => {
+  return c.json({
+    name: "Personal Brain API",
+    version: "0.1.0",
+    status: "running",
+  });
+});
+
+app.get("/health", (c) => {
+  return c.json({
+    status: "ok",
+    service: "personal-brain-api",
+  });
+});
+
+export default app;
