@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <title>Personal Brain</title>
+
+  <link
+    rel="stylesheet"
+    href="style.css"
+  >
+</head>
+
+<body>
+
+  <div class="app">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+
+      <div class="brand">
+        <div class="brand-icon">🧠</div>
+
+        <div>
+          <h1>Personal Brain</h1>
+          <p>Your private knowledge assistant</p>
+        </div>
+      </div>
+
+      <button
+        id="newChatButton"
+        class="new-chat-button"
+      >
+        + New Question
+      </button>
+
+      <div class="sidebar-info">
+        <div class="status-dot"></div>
+
+        <div>
+          <strong>Brain Online</strong>
+          <span>Connected to local backend</span>
+        </div>
+      </div>
+
+    </aside>
+
+
+    <!-- Main content -->
+    <main class="main">
+
+      <header class="header">
+
+        <div>
+          <h2>Ask your Personal Brain</h2>
+
+          <p>
+            Search your Gmail and Google Drive
+            using natural language.
+          </p>
+        </div>
+
+        <div class="connection">
+          <span class="connection-dot"></span>
+          Local
+        </div>
+
+      </header>
+
+
+      <!-- Chat area -->
+      <section
+        id="chat"
+        class="chat"
+      >
+
+        <div
+          id="welcome"
+          class="welcome"
+        >
+
+          <div class="welcome-icon">
+            🧠
+          </div>
+
+          <h2>
+            What would you like to know?
+          </h2>
+
+          <p>
+            Ask questions about information
+            stored in your Personal Brain.
+          </p>
+
+          <div class="examples">
+
+            <button
+              class="example"
+              data-question="What companies are hiring in Noida?"
+            >
+              💼 What companies are hiring in Noida?
+            </button>
+
+            <button
+              class="example"
+              data-question="What jobs are related to backend development?"
+            >
+              💻 What jobs are related to backend development?
+            </button>
+
+            <button
+              class="example"
+              data-question="Help me prepare for a Java backend interview"
+            >
+              ☕ Help me prepare for a Java backend interview
+            </button>
+
+          </div>
+
+        </div>
+
+      </section>
+
+
+      <!-- Input -->
+      <div class="input-area">
+
+        <div class="input-wrapper">
+
+          <textarea
+            id="questionInput"
+            placeholder="Ask your Personal Brain..."
+            rows="1"
+          ></textarea>
+
+          <button
+            id="sendButton"
+            class="send-button"
+            title="Send"
+          >
+            ➤
+          </button>
+
+        </div>
+
+        <p class="input-hint">
+          Answers are generated from your connected
+          Gmail and Google Drive data.
+        </p>
+
+      </div>
+
+    </main>
+
+  </div>
+
+
+  <script src="app.js"></script>
+
+</body>
+</html>

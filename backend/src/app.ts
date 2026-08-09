@@ -1,10 +1,23 @@
 import { Hono } from "hono";
+import { cors } from "hono/cors";
+
 import authRoutes from "./routes/authRoutes";
 import gmailRoutes from "./routes/gmailRoutes";
 import driveRoutes from "./routes/driveRoutes";
 import brainRoutes from "./routes/brainRoutes";
 
 const app = new Hono();
+
+/*
+ * Allow the frontend to communicate
+ * with the local backend API.
+ */
+app.use(
+  "*",
+  cors({
+    origin: "*",
+  })
+);
 
 app.get("/", (c) => {
   return c.json({
