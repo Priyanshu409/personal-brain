@@ -1,449 +1,662 @@
 const API_BASE_URL = "http://localhost:3000";
 
-const chat =
-  document.getElementById("chat");
+// Core UI Elements
+const chat = document.getElementById("chat");
+const input = document.getElementById("questionInput");
+const sendButton = document.getElementById("sendButton");
+const newChatButton = document.getElementById("newChatButton");
 
-const input =
-  document.getElementById("questionInput");
+// Sync & Connection Elements
+const syncButton = document.getElementById("syncButton");
+const syncBtnText = document.getElementById("syncBtnText");
+const syncStatusIndicator = document.getElementById("syncStatusIndicator");
+const connectGoogleBtn = document.getElementById("connectGoogleBtn");
 
-const sendButton =
-  document.getElementById("sendButton");
+const backendStatusDot = document.getElementById("backendStatusDot");
+const backendStatusTitle = document.getElementById("backendStatusTitle");
+const backendStatusDesc = document.getElementById("backendStatusDesc");
+const mobileConnectionDot = document.getElementById("mobileConnectionDot");
+const headerConnectionDot = document.getElementById("headerConnectionDot");
+const connectionLabel = document.getElementById("connectionLabel");
 
-const newChatButton =
-  document.getElementById("newChatButton");
+// Query Mode Elements
+const modeChat = document.getElementById("modeChat");
+const modeSearch = document.getElementById("modeSearch");
+const currentModeTitle = document.getElementById("currentModeTitle");
+const currentModeDesc = document.getElementById("currentModeDesc");
 
+// Navigation & Toast Elements
+const sidebarToggle = document.getElementById("sidebarToggle");
+const sidebar = document.getElementById("sidebar");
+const sidebarOverlay = document.getElementById("sidebarOverlay");
+const recentQuestionsList = document.getElementById("recentQuestionsList");
+const toastContainer = document.getElementById("toastContainer");
 
-/* =========================
-   ASK PERSONAL BRAIN
-   ========================= */
+// App State
+let currentMode = "chat"; // 'chat' or 'search'
+let isSyncing = false;
+let isMobileSidebarOpen = false;
+let queryHistory = [];
 
-async function askBrain(question) {
+/* ==========================================
+   TOAST NOTIFICATION ENGINE
+   ========================================== */
+function showToast(message, type = "info") {
+  const toast = document.createElement("div");
+  toast.className = `toast ${type}`;
+  
+  let emoji = "ℹ️";
+  if (type === "success") emoji = "✅";
+  if (type === "error") emoji = "❌";
+  
+  const icon = document.createElement("span");
+  icon.textContent = emoji;
+  const text = document.createElement("span");
+  text.textContent = message;
+  toast.append(icon, text);
+  toastContainer.appendChild(toast);
+  
+  // Remove toast after animation completes
+  setTimeout(() => {
+    toast.remove();
+  }, 3500);
+}
+
+/* ==========================================
+   BACKEND HEALTH & CONNECTION
+   ========================================== */
+async function checkBackendStatus() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/health`);
+    if (response.ok) {
+      setConnectionState(true);
+    } else {
+      setConnectionState(false);
+    }
+  } catch (error) {
+    setConnectionState(false);
+  }
+}
+
+function setConnectionState(isOnline) {
+  const dots = [backendStatusDot, mobileConnectionDot, headerConnectionDot];
+  
+  if (isOnline) {
+    dots.forEach(dot => {
+      if (dot) {
+        dot.className = "status-dot online";
+        if (dot.classList.contains("connection-dot")) {
+          dot.className = "connection-dot online";
+        }
+      }
+    });
+    backendStatusTitle.textContent = "Brain Online";
+    backendStatusDesc.textContent = "Connected to local API";
+    connectionLabel.textContent = "Local API";
+  } else {
+    dots.forEach(dot => {
+      if (dot) {
+        dot.className = "status-dot offline";
+        if (dot.classList.contains("connection-dot")) {
+          dot.className = "connection-dot offline";
+        }
+      }
+    });
+    backendStatusTitle.textContent = "Brain Offline";
+    backendStatusDesc.textContent = "Cannot reach local API";
+    connectionLabel.textContent = "Offline";
+  }
+}
+
+/* ==========================================
+   SYNC ENGINE (Manual & Polling)
+   ========================================== */
+async function checkSyncStatus() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/brain/sync/status`);
+    if (!response.ok) return;
+    
+    const data = await response.json();
+    const syncIcon = syncButton.querySelector(".icon");
+    
+    if (data.running) {
+      isSyncing = true;
+      syncButton.disabled = true;
+      syncIcon.classList.add("active");
+      syncBtnText.textContent = "Syncing Brain...";
+      syncStatusIndicator.classList.remove("hidden");
+      
+      backendStatusDot.className = "status-dot syncing";
+      backendStatusDot.title = "Syncing data in background";
+    } else {
+      // If we transitions from syncing to idle, show toast success
+      if (isSyncing) {
+        showToast("Personal Brain sync completed!", "success");
+      }
+      isSyncing = false;
+      syncButton.disabled = false;
+      syncIcon.classList.remove("active");
+      syncBtnText.textContent = "Sync Connected Tools";
+      syncStatusIndicator.classList.add("hidden");
+      
+      backendStatusDot.className = "status-dot online";
+      backendStatusDot.title = "Online and ready";
+    }
+  } catch (error) {
+    console.error("Failed to query sync status:", error);
+  }
+}
+
+async function triggerSync() {
+  if (isSyncing) return;
+  
+  const syncIcon = syncButton.querySelector(".icon");
+  syncButton.disabled = true;
+  syncIcon.classList.add("active");
+  
+  try {
+    const response = await fetch(`${API_BASE_URL}/brain/sync`, {
+      method: "POST"
+    });
+    
+    if (!response.ok) {
+      throw new Error("Failed to start synchronization");
+    }
+    
+    showToast("Synchronization started in background...", "success");
+    await checkSyncStatus();
+  } catch (error) {
+    showToast(error.message || "Failed to start sync", "error");
+    syncButton.disabled = false;
+    syncIcon.classList.remove("active");
+  }
+}
+
+/* ==========================================
+   PERSISTENT SEARCH HISTORY
+   ========================================= */
+function loadHistory() {
+  try {
+    const saved = localStorage.getItem("pb_history");
+    if (saved) {
+      queryHistory = JSON.parse(saved);
+    }
+  } catch (e) {
+    queryHistory = [];
+  }
+  renderHistory();
+}
+
+function saveToHistory(question) {
   question = question.trim();
+  if (!question) return;
+  
+  // Filter out duplicates
+  queryHistory = queryHistory.filter(q => q.toLowerCase() !== question.toLowerCase());
+  
+  // Insert at top
+  queryHistory.unshift(question);
+  
+  // Limit to 6 items
+  if (queryHistory.length > 6) {
+    queryHistory.pop();
+  }
+  
+  try {
+    localStorage.setItem("pb_history", JSON.stringify(queryHistory));
+  } catch (e) {}
+  
+  renderHistory();
+}
 
-  if (!question) {
+function renderHistory() {
+  if (!recentQuestionsList) return;
+  recentQuestionsList.innerHTML = "";
+  
+  if (queryHistory.length === 0) {
+    recentQuestionsList.innerHTML = `<div class="no-history">No queries yet</div>`;
     return;
   }
+  
+  queryHistory.forEach(q => {
+    const item = document.createElement("button");
+    item.className = "recent-item";
+    item.title = q;
+    item.textContent = q;
+    item.addEventListener("click", () => {
+      // Re-trigger question
+      if (isMobileSidebarOpen) {
+        closeMobileSidebar();
+      }
+      input.value = q;
+      askBrain(q);
+    });
+    recentQuestionsList.appendChild(item);
+  });
+}
+
+/* ==========================================
+   QUERY MODE SELECTION
+   ========================================== */
+function toggleMode(mode) {
+  currentMode = mode;
+  
+  if (mode === "chat") {
+    modeChat.classList.add("active");
+    modeSearch.classList.remove("active");
+    currentModeTitle.textContent = "Ask your Personal Brain";
+    currentModeDesc.textContent = "Search your Gmail and Google Drive using natural language.";
+    input.placeholder = "Ask your Personal Brain...";
+  } else {
+    modeChat.classList.remove("active");
+    modeSearch.classList.add("active");
+    currentModeTitle.textContent = "Direct Semantic Search";
+    currentModeDesc.textContent = "Retrieve raw documents matched semantically from your connected indexes.";
+    input.placeholder = "Search documents for words, keywords, names...";
+  }
+  input.focus();
+}
+
+/* ==========================================
+   INPUT SUBMIT & CONVERSATION LOGIC
+   ========================================== */
+async function askBrain(question) {
+  question = question.trim();
+  if (!question) return;
 
   addUserMessage(question);
-
   input.value = "";
-
   resizeInput();
-
   removeWelcome();
 
-  const loading =
-    addLoadingMessage();
-
+  const loadingMessage = addLoadingMessage();
   sendButton.disabled = true;
 
   try {
-    const url =
-      `${API_BASE_URL}/brain/ask?q=${encodeURIComponent(
-        question
-      )}`;
-
-    const response =
-      await fetch(url);
-
-    if (!response.ok) {
-      let message =
-        "Failed to get answer";
-
-      try {
-        const error =
-          await response.json();
-
-        if (error.error) {
-          message = error.error;
-        }
-      } catch {
-        // Ignore invalid JSON.
+    if (currentMode === "chat") {
+      // AI Chat mode
+      const url = `${API_BASE_URL}/brain/ask?q=${encodeURIComponent(question)}`;
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(await getErrorMessage(response));
       }
-
-      throw new Error(message);
+      
+      const data = await response.json();
+      loadingMessage.remove();
+      
+      addAssistantMessage(data.answer, data.sources ?? []);
+      saveToHistory(question);
+    } else {
+      // Direct Search mode
+      const url = `${API_BASE_URL}/brain/search?q=${encodeURIComponent(question)}`;
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(await getErrorMessage(response));
+      }
+      
+      const data = await response.json();
+      loadingMessage.remove();
+      
+      // The search response returns { query, result: { query, count, results: [...] } }
+      const results = (data.result && data.result.results) ? data.result.results : (data.results ?? []);
+      addSearchResultsMessage(results, question);
+      saveToHistory(question);
     }
-
-    const data =
-      await response.json();
-
-    loading.remove();
-
-    addAssistantMessage(
-      data.answer,
-      data.sources ?? []
-    );
   } catch (error) {
-    loading.remove();
-
-    addErrorMessage(
-      error instanceof Error
-        ? error.message
-        : "Something went wrong"
-    );
+    loadingMessage.remove();
+    addErrorMessage(error.message || "Something went wrong. Please check connection.");
+    showToast(error.message || "Failed to retrieve results", "error");
   } finally {
     sendButton.disabled = false;
-
     input.focus();
   }
 }
 
-
-/* =========================
-   USER MESSAGE
-   ========================= */
-
-function addUserMessage(text) {
-  const message =
-    document.createElement("div");
-
-  message.className =
-    "message user";
-
-  const content =
-    document.createElement("div");
-
-  content.className =
-    "message-content";
-
-  content.textContent = text;
-
-  message.appendChild(content);
-
-  chat.appendChild(message);
-
-  scrollToBottom();
-}
-
-
-/* =========================
-   ASSISTANT MESSAGE
-   ========================= */
-
-function addAssistantMessage(
-  answer,
-  sources
-) {
-  const message =
-    document.createElement("div");
-
-  message.className =
-    "message assistant";
-
-  const content =
-    document.createElement("div");
-
-  content.className =
-    "message-content";
-
-  content.innerHTML =
-    formatAnswer(answer);
-
-  if (
-    Array.isArray(sources) &&
-    sources.length > 0
-  ) {
-    addSources(
-      content,
-      sources
-    );
+async function getErrorMessage(response) {
+  try {
+    const errorData = await response.json();
+    return errorData.error || "Failed to fetch response from Brain API";
+  } catch (e) {
+    return `Server returned error (${response.status})`;
   }
+}
 
-  message.appendChild(content);
-
-  chat.appendChild(message);
-
+/* ==========================================
+   DOM MANIPULATION (MESSAGES & CARD RENDERING)
+   ========================================== */
+function addUserMessage(text) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "message-wrapper user";
+  
+  const avatar = document.createElement("div");
+  avatar.className = "avatar";
+  avatar.textContent = "👤";
+  
+  const container = document.createElement("div");
+  container.className = "message-container";
+  
+  const content = document.createElement("div");
+  content.className = "message-content";
+  content.textContent = text;
+  
+  container.appendChild(content);
+  wrapper.appendChild(avatar);
+  wrapper.appendChild(container);
+  
+  chat.appendChild(wrapper);
   scrollToBottom();
 }
 
-
-/* =========================
-   SOURCES
-   ========================= */
-
-function addSources(
-  container,
-  sources
-) {
-  const sourcesContainer =
-    document.createElement("div");
-
-  sourcesContainer.className =
-    "sources";
-
-  const title =
-    document.createElement("div");
-
-  title.className =
-    "sources-title";
-
-  title.textContent =
-    "Sources";
-
-  sourcesContainer.appendChild(
-    title
-  );
-
-  sources.forEach(
-    (source) => {
-      const card =
-        document.createElement("div");
-
-      card.className =
-        "source-card";
-
-      const information =
-        document.createElement("div");
-
-      const name =
-        document.createElement("div");
-
-      name.className =
-        "source-name";
-
-      name.textContent =
-        source.title ?? "Untitled";
-
-      const type =
-        document.createElement("div");
-
-      type.className =
-        "source-type";
-
-      type.textContent =
-        source.source ?? "";
-
-      information.appendChild(name);
-      information.appendChild(type);
-
-      const score =
-        document.createElement("div");
-
-      score.className =
-        "source-score";
-
-      const numericScore =
-        Number(source.score);
-
-      score.textContent =
-        Number.isFinite(numericScore)
-          ? numericScore.toFixed(4)
-          : "";
-
-      card.appendChild(information);
-      card.appendChild(score);
-
-      sourcesContainer.appendChild(card);
-    }
-  );
-
-  container.appendChild(
-    sourcesContainer
-  );
+function addAssistantMessage(answer, sources) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "message-wrapper assistant";
+  
+  const avatar = document.createElement("div");
+  avatar.className = "avatar";
+  avatar.textContent = "🧠";
+  
+  const container = document.createElement("div");
+  container.className = "message-container";
+  
+  const content = document.createElement("div");
+  content.className = "message-content";
+  content.innerHTML = formatAnswer(answer);
+  
+  if (Array.isArray(sources) && sources.length > 0) {
+    addSources(content, sources);
+  }
+  
+  container.appendChild(content);
+  wrapper.appendChild(avatar);
+  wrapper.appendChild(container);
+  
+  chat.appendChild(wrapper);
+  
+  // Attach Copy Code click listeners in formatting wrapper
+  attachCopyCodeListeners(content);
+  
+  scrollToBottom();
 }
 
+function addSearchResultsMessage(results, question) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "message-wrapper assistant";
+  
+  const avatar = document.createElement("div");
+  avatar.className = "avatar";
+  avatar.textContent = "🧠";
+  
+  const container = document.createElement("div");
+  container.className = "message-container";
+  
+  const content = document.createElement("div");
+  content.className = "message-content";
+  
+  let html = `<div><strong>Semantic Search Results for:</strong> <em>"${escapeHtml(question)}"</em></div>`;
+  
+  if (!Array.isArray(results) || results.length === 0) {
+    html += `<div style="margin-top: 12px; color: var(--text-secondary); font-style: italic;">No relevant documents matched this query. Try synchronizing or editing documents.</div>`;
+  } else {
+    html += `<div class="search-results-container">`;
+    results.forEach(result => {
+      const scorePercent = Math.round(Number(result.score) * 100);
+      const badgeClass = result.source === "gmail" ? "gmail" : (result.source === "drive" ? "drive" : "unknown");
+      const title = result.title || "Untitled File";
+      const snippet = escapeHtml(result.content || "").substring(0, 320) + "...";
+      
+      html += `
+        <div class="search-result-card">
+          <div class="search-result-header">
+            <span class="search-result-title">${escapeHtml(title)}</span>
+            <div class="source-score-container">
+              <span class="source-type-pill ${badgeClass}">${result.source}</span>
+              <span class="source-score-badge">${scorePercent}% Match</span>
+            </div>
+          </div>
+          <div class="search-result-snippet">${snippet}</div>
+        </div>
+      `;
+    });
+    html += `</div>`;
+  }
+  
+  content.innerHTML = html;
+  container.appendChild(content);
+  wrapper.appendChild(avatar);
+  wrapper.appendChild(container);
+  
+  chat.appendChild(wrapper);
+  scrollToBottom();
+}
 
-/* =========================
-   LOADING
-   ========================= */
+function addSources(container, sources) {
+  const sourcesContainer = document.createElement("div");
+  sourcesContainer.className = "sources";
+  
+  const title = document.createElement("div");
+  title.className = "sources-title";
+  title.textContent = "Retrieved Sources";
+  sourcesContainer.appendChild(title);
+  
+  sources.forEach(source => {
+    const card = document.createElement("div");
+    card.className = "source-card";
+    
+    const details = document.createElement("div");
+    details.className = "source-details";
+    
+    const name = document.createElement("div");
+    name.className = "source-name";
+    name.textContent = source.title ?? "Untitled Document";
+    
+    const meta = document.createElement("div");
+    meta.className = "source-meta";
+    
+    const typeClass = source.source === "gmail" ? "gmail" : (source.source === "drive" ? "drive" : "unknown");
+    const sourceLabel = source.source ? source.source.toUpperCase() : "UNKNOWN";
+    
+    meta.innerHTML = `<span class="source-type-pill ${typeClass}">${sourceLabel}</span>`;
+    
+    details.appendChild(name);
+    details.appendChild(meta);
+    
+    const scoreContainer = document.createElement("div");
+    scoreContainer.className = "source-score-container";
+    
+    const scoreVal = Number(source.score);
+    const scorePercent = Math.round(scoreVal * 100);
+    
+    scoreContainer.innerHTML = `<span class="source-score-badge">${scorePercent}% Match</span>`;
+    
+    card.appendChild(details);
+    card.appendChild(scoreContainer);
+    
+    sourcesContainer.appendChild(card);
+  });
+  
+  container.appendChild(sourcesContainer);
+}
 
 function addLoadingMessage() {
-  const message =
-    document.createElement("div");
-
-  message.className =
-    "message assistant";
-
-  message.innerHTML = `
-    <div class="message-content">
-      <div class="loading">
-        <div class="spinner"></div>
-        Thinking...
+  const wrapper = document.createElement("div");
+  wrapper.className = "message-wrapper assistant";
+  
+  const avatar = document.createElement("div");
+  avatar.className = "avatar";
+  avatar.textContent = "🧠";
+  
+  const container = document.createElement("div");
+  container.className = "message-container";
+  
+  const content = document.createElement("div");
+  content.className = "message-content";
+  content.innerHTML = `
+    <div class="loading">
+      <div class="pulse-loader">
+        <div class="pulse-bubble pulse-bubble-1"></div>
+        <div class="pulse-bubble pulse-bubble-2"></div>
+        <div class="pulse-bubble pulse-bubble-3"></div>
       </div>
+      <span>Brain is analyzing files...</span>
     </div>
   `;
-
-  chat.appendChild(message);
-
+  
+  container.appendChild(content);
+  wrapper.appendChild(avatar);
+  wrapper.appendChild(container);
+  
+  chat.appendChild(wrapper);
   scrollToBottom();
-
-  return message;
+  
+  return wrapper;
 }
-
-
-/* =========================
-   ERROR
-   ========================= */
 
 function addErrorMessage(error) {
-  const message =
-    document.createElement("div");
-
-  message.className =
-    "message assistant";
-
-  const content =
-    document.createElement("div");
-
-  content.className =
-    "message-content";
-
-  const errorBox =
-    document.createElement("div");
-
-  errorBox.className =
-    "error";
-
-  errorBox.textContent = error;
-
+  const wrapper = document.createElement("div");
+  wrapper.className = "message-wrapper assistant";
+  
+  const avatar = document.createElement("div");
+  avatar.className = "avatar";
+  avatar.textContent = "🧠";
+  
+  const container = document.createElement("div");
+  container.className = "message-container";
+  
+  const content = document.createElement("div");
+  content.className = "message-content";
+  
+  const errorBox = document.createElement("div");
+  errorBox.className = "error-box";
+  errorBox.innerHTML = `
+    <span class="error-icon">⚠️</span>
+    <span><strong>Query Failed:</strong> ${escapeHtml(error)}</span>
+  `;
+  
   content.appendChild(errorBox);
-
-  message.appendChild(content);
-
-  chat.appendChild(message);
-
+  container.appendChild(content);
+  wrapper.appendChild(avatar);
+  wrapper.appendChild(container);
+  
+  chat.appendChild(wrapper);
   scrollToBottom();
 }
 
-
-/* =========================
-   FORMAT ANSWER
-   ========================= */
-
+/* ==========================================
+   MARKDOWN CONVERSATIONAL PARSER
+   ========================================== */
 function formatAnswer(text) {
-  let escaped =
-    escapeHtml(text);
+  let escaped = escapeHtml(text);
+  
+  // Replace code blocks: ```lang\ncode``` or ```code```
+  const codeBlockRegex = /```(?:[a-zA-Z0-9]+)?\n([\s\S]*?)```/g;
+  escaped = escaped.replace(codeBlockRegex, (match, code) => {
+    const uniqueId = 'code_' + Math.random().toString(36).substr(2, 9);
+    const cleanCode = code.trim();
+    return `
+      <div class="code-block-container">
+        <div class="code-block-header">
+          <span>Code Output</span>
+          <button class="copy-code-btn" data-code-id="${uniqueId}">Copy</button>
+        </div>
+        <pre><code id="${uniqueId}">${cleanCode}</code></pre>
+      </div>
+    `;
+  });
 
-  escaped =
-    escaped.replace(
-      /\*\*(.*?)\*\*/g,
-      "<strong>$1</strong>"
-    );
+  // Inline code: `code`
+  escaped = escaped.replace(/`([^`\n]+)`/g, '<span class="inline-code">$1</span>');
 
-  const lines =
-    escaped.split("\n");
+  // Bold text: **bold**
+  escaped = escaped.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
 
+  const lines = escaped.split("\n");
   let html = "";
-
-  let inList = false;
+  let inOrderedList = false;
+  let inUnorderedList = false;
 
   for (const line of lines) {
-    const match =
-      line.match(
-        /^\s*(\d+)\.\s+(.*)$/
-      );
+    // Avoid double processing lists or paragraph tags around code blocks
+    if (line.includes('<div class="code-block') || 
+        line.includes('<div class="code-block-header') ||
+        line.includes('<pre><code') || 
+        line.includes('</pre></div>') ||
+        line.includes('</code></pre>') ||
+        line.includes('<span>Code Output') ||
+        line.includes('<button class="copy-code')) {
+      html += line + "\n";
+      continue;
+    }
 
-    if (match) {
-      if (!inList) {
-        html +=
-          '<ol class="answer-list">';
+    // Numbered List: 1. Item
+    const orderedMatch = line.match(/^\s*(\d+)\.\s+(.*)$/);
+    // Bullet List: - Item or * Item
+    const unorderedMatch = line.match(/^\s*[-\*]\s+(.*)$/);
 
-        inList = true;
+    if (orderedMatch) {
+      if (inUnorderedList) {
+        html += "</ul>";
+        inUnorderedList = false;
       }
-
-      html +=
-        `<li>${match[2]}</li>`;
-    } else {
-      if (inList) {
+      if (!inOrderedList) {
+        html += '<ol class="answer-list">';
+        inOrderedList = true;
+      }
+      html += `<li>${orderedMatch[2]}</li>`;
+    } else if (unorderedMatch) {
+      if (inOrderedList) {
         html += "</ol>";
-
-        inList = false;
+        inOrderedList = false;
+      }
+      if (!inUnorderedList) {
+        html += '<ul class="answer-list">';
+        inUnorderedList = true;
+      }
+      html += `<li>${unorderedMatch[1]}</li>`;
+    } else {
+      if (inOrderedList) {
+        html += "</ol>";
+        inOrderedList = false;
+      }
+      if (inUnorderedList) {
+        html += "</ul>";
+        inUnorderedList = false;
       }
 
       if (line.trim()) {
-        html +=
-          `<div>${line}</div>`;
+        html += `<p>${line}</p>`;
       }
     }
   }
 
-  if (inList) {
-    html += "</ol>";
-  }
+  if (inOrderedList) html += "</ol>";
+  if (inUnorderedList) html += "</ul>";
 
   return html;
 }
 
-
-/* =========================
-   REMOVE WELCOME SCREEN
-   ========================= */
-
-function removeWelcome() {
-  const welcome =
-    document.getElementById("welcome");
-
-  if (welcome) {
-    welcome.remove();
-  }
+function attachCopyCodeListeners(container) {
+  const copyBtns = container.querySelectorAll(".copy-code-btn");
+  copyBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      const codeId = btn.dataset.codeId;
+      const codeElement = document.getElementById(codeId);
+      if (codeElement) {
+        const text = codeElement.textContent;
+        navigator.clipboard.writeText(text).then(() => {
+          btn.textContent = "Copied!";
+          showToast("Code copied to clipboard", "success");
+          setTimeout(() => {
+            btn.textContent = "Copy";
+          }, 2000);
+        }).catch(() => {
+          showToast("Failed to copy code", "error");
+        });
+      }
+    });
+  });
 }
-
-
-/* =========================
-   NEW CHAT
-   ========================= */
-
-function newChat() {
-  chat.innerHTML = `
-    <div
-      id="welcome"
-      class="welcome"
-    >
-
-      <div class="welcome-icon">
-        🧠
-      </div>
-
-      <h2>
-        What would you like to know?
-      </h2>
-
-      <p>
-        Ask questions about information
-        stored in your Personal Brain.
-      </p>
-
-      <div class="examples">
-
-        <button
-          class="example"
-          data-question="What companies are hiring in Noida?"
-        >
-          💼 What companies are hiring in Noida?
-        </button>
-
-        <button
-          class="example"
-          data-question="What jobs are related to backend development?"
-        >
-          💻 What jobs are related to backend development?
-        </button>
-
-        <button
-          class="example"
-          data-question="Help me prepare for a Java backend interview"
-        >
-          ☕ Help me prepare for a Java backend interview
-        </button>
-
-      </div>
-
-    </div>
-  `;
-
-  attachExampleListeners();
-
-  input.value = "";
-
-  resizeInput();
-
-  input.focus();
-}
-
-
-/* =========================
-   ESCAPE HTML
-   ========================= */
 
 function escapeHtml(value) {
   return String(value)
@@ -454,110 +667,129 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
+/* ==========================================
+   HELPERS & CHAT RESET
+   ========================================== */
+function removeWelcome() {
+  const welcome = document.getElementById("welcome");
+  if (welcome) {
+    welcome.remove();
+  }
+}
 
-/* =========================
-   TEXTAREA RESIZE
-   ========================= */
+function newChat() {
+  chat.innerHTML = `
+    <div id="welcome" class="welcome">
+      <div class="welcome-glow"></div>
+      <div class="welcome-icon">🧠</div>
+      <h2>What would you like to know?</h2>
+      <p>
+        Retrieve, correlate and reason over information stored in your Gmail inbox and Google Drive.
+      </p>
+
+      <div class="examples">
+        <button class="example" data-question="What companies are hiring in Noida?">
+          💼 What companies are hiring in Noida?
+        </button>
+        <button class="example" data-question="What jobs are related to backend development?">
+          💻 What jobs are related to backend development?
+        </button>
+        <button class="example" data-question="Help me prepare for a Java backend interview">
+          ☕ Help me prepare for a Java backend interview
+        </button>
+      </div>
+    </div>
+  `;
+
+  attachExampleListeners();
+  input.value = "";
+  resizeInput();
+  input.focus();
+}
 
 function resizeInput() {
   input.style.height = "auto";
-
-  input.style.height =
-    `${Math.min(
-      input.scrollHeight,
-      120
-    )}px`;
+  input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
 }
-
-
-/* =========================
-   SCROLL
-   ========================= */
 
 function scrollToBottom() {
-  chat.scrollTop =
-    chat.scrollHeight;
+  chat.scrollTop = chat.scrollHeight;
 }
-
-
-/* =========================
-   EXAMPLE QUESTIONS
-   ========================= */
 
 function attachExampleListeners() {
-  document
-    .querySelectorAll(".example")
-    .forEach((button) => {
-      button.addEventListener(
-        "click",
-        () => {
-          const question =
-            button.dataset.question;
-
-          if (question) {
-            askBrain(question);
-          }
-        }
-      );
+  document.querySelectorAll(".example").forEach(button => {
+    button.addEventListener("click", () => {
+      const question = button.dataset.question;
+      if (question) {
+        askBrain(question);
+      }
     });
+  });
 }
 
+/* ==========================================
+   MOBILE INTERFACE DRAWER
+   ========================================= */
+function openMobileSidebar() {
+  isMobileSidebarOpen = true;
+  sidebar.classList.add("open");
+  sidebarOverlay.classList.add("open");
+}
 
-/* =========================
-   SEND BUTTON
-   ========================= */
+function closeMobileSidebar() {
+  isMobileSidebarOpen = false;
+  sidebar.classList.remove("open");
+  sidebarOverlay.classList.remove("open");
+}
 
-sendButton.addEventListener(
-  "click",
-  () => {
+/* ==========================================
+   EVENT LISTENERS INITIALIZATION
+   ========================================== */
+
+// Question Submission
+sendButton.addEventListener("click", () => {
+  askBrain(input.value);
+});
+
+input.addEventListener("keydown", event => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
     askBrain(input.value);
   }
-);
+});
 
+input.addEventListener("input", resizeInput);
 
-/* =========================
-   KEYBOARD
-   ========================= */
+// Reset Conversation
+newChatButton.addEventListener("click", newChat);
 
-input.addEventListener(
-  "keydown",
-  (event) => {
-    if (
-      event.key === "Enter" &&
-      !event.shiftKey
-    ) {
-      event.preventDefault();
+// Sync Tools Button
+syncButton.addEventListener("click", triggerSync);
 
-      askBrain(input.value);
-    }
+// Query Mode Selector Tabs
+modeChat.addEventListener("click", () => toggleMode("chat"));
+modeSearch.addEventListener("click", () => toggleMode("search"));
+
+// Mobile Sidebar Drawer
+sidebarToggle.addEventListener("click", () => {
+  if (isMobileSidebarOpen) {
+    closeMobileSidebar();
+  } else {
+    openMobileSidebar();
   }
-);
+});
+sidebarOverlay.addEventListener("click", closeMobileSidebar);
 
-
-/* =========================
-   INPUT RESIZE
-   ========================= */
-
-input.addEventListener(
-  "input",
-  resizeInput
-);
-
-
-/* =========================
-   NEW CHAT BUTTON
-   ========================= */
-
-newChatButton.addEventListener(
-  "click",
-  newChat
-);
-
-
-/* =========================
-   INITIALIZE
-   ========================= */
-
+/* ==========================================
+   INITIAL STARTUP & POLLING
+   ========================================== */
 attachExampleListeners();
+loadHistory();
+checkBackendStatus();
+
+// Polling intervals
+checkSyncStatus(); // Check immediate status on startup
+setInterval(checkBackendStatus, 10000); // Check health every 10 seconds
+setInterval(checkSyncStatus, 5000); // Check background sync every 5 seconds
 
 input.focus();
