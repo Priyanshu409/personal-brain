@@ -2,163 +2,167 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0"
-  >
-
-  <title>Personal Brain</title>
-
-  <link
-    rel="stylesheet"
-    href="style.css"
-  >
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Personal Brain — AI Knowledge Assistant</title>
+  
+  <!-- Modern Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="style.css">
 </head>
-
 <body>
 
   <div class="app">
 
+    <!-- Mobile Top Bar Header -->
+    <header class="mobile-header">
+      <button id="sidebarToggle" class="sidebar-toggle-btn" aria-label="Toggle Sidebar">
+        <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+      </button>
+      <div class="mobile-brand">
+        <span class="emoji-logo">🧠</span>
+        <span class="brand-text">Personal Brain</span>
+      </div>
+      <div id="mobileConnectionDot" class="status-dot online"></div>
+    </header>
+
+    <!-- Sidebar Overlay for Mobile -->
+    <div id="sidebarOverlay" class="sidebar-overlay"></div>
+
     <!-- Sidebar -->
-    <aside class="sidebar">
+    <aside id="sidebar" class="sidebar">
 
       <div class="brand">
         <div class="brand-icon">🧠</div>
-
         <div>
           <h1>Personal Brain</h1>
-          <p>Your private knowledge assistant</p>
+          <p>Your private knowledge base</p>
         </div>
       </div>
 
-      <button
-        id="newChatButton"
-        class="new-chat-button"
-      >
-        + New Question
+      <button id="newChatButton" class="new-chat-button">
+        <span class="btn-icon">+</span> New Question
       </button>
 
-      <div class="sidebar-info">
-        <div class="status-dot"></div>
+      <!-- Connection & Sync Controls -->
+      <div class="sidebar-group">
+        <div class="group-title">Connection & Control</div>
+        
+        <a href="http://localhost:3000/auth/google" target="_blank" class="sidebar-link-btn" id="connectGoogleBtn">
+          <span class="icon">🔑</span> Connect Google Account
+        </a>
+        
+        <button id="syncButton" class="sidebar-action-btn">
+          <span class="icon spin-element">🔄</span>
+          <span id="syncBtnText">Sync Connected Tools</span>
+        </button>
+        
+        <div id="syncStatusIndicator" class="sync-status-indicator hidden">
+          <div class="sync-loader"></div>
+          <span>Synchronizing Gmail & Drive...</span>
+        </div>
+      </div>
 
+      <!-- History Section -->
+      <div class="sidebar-group history-section flex-grow">
+        <div class="group-title">Recent Questions</div>
+        <div id="recentQuestionsList" class="recent-questions-list">
+          <div class="no-history">No queries yet</div>
+        </div>
+      </div>
+
+      <!-- Footer Info -->
+      <div class="sidebar-info">
+        <div id="backendStatusDot" class="status-dot online"></div>
         <div>
-          <strong>Brain Online</strong>
-          <span>Connected to local backend</span>
+          <strong id="backendStatusTitle">Brain Online</strong>
+          <span id="backendStatusDesc">Connected to local API</span>
         </div>
       </div>
 
     </aside>
 
-
     <!-- Main content -->
     <main class="main">
 
       <header class="header">
-
-        <div>
-          <h2>Ask your Personal Brain</h2>
-
-          <p>
-            Search your Gmail and Google Drive
-            using natural language.
-          </p>
+        <div class="header-left">
+          <h2 id="currentModeTitle">Ask your Personal Brain</h2>
+          <p id="currentModeDesc">Search your Gmail and Google Drive using natural language.</p>
         </div>
 
-        <div class="connection">
-          <span class="connection-dot"></span>
-          Local
+        <div class="header-right">
+          <!-- Query Mode Toggle -->
+          <div class="mode-toggle-container">
+            <button id="modeChat" class="mode-tab active" data-mode="chat">
+              💬 Ask AI
+            </button>
+            <button id="modeSearch" class="mode-tab" data-mode="search">
+              🔍 Direct Search
+            </button>
+          </div>
+          
+          <div class="connection">
+            <span id="headerConnectionDot" class="connection-dot"></span>
+            <span id="connectionLabel">Local API</span>
+          </div>
         </div>
-
       </header>
 
-
       <!-- Chat area -->
-      <section
-        id="chat"
-        class="chat"
-      >
+      <section id="chat" class="chat">
 
-        <div
-          id="welcome"
-          class="welcome"
-        >
-
-          <div class="welcome-icon">
-            🧠
-          </div>
-
-          <h2>
-            What would you like to know?
-          </h2>
-
+        <div id="welcome" class="welcome">
+          <div class="welcome-glow"></div>
+          <div class="welcome-icon">🧠</div>
+          <h2>What would you like to know?</h2>
           <p>
-            Ask questions about information
-            stored in your Personal Brain.
+            Retrieve, correlate and reason over information stored in your Gmail inbox and Google Drive.
           </p>
 
           <div class="examples">
-
-            <button
-              class="example"
-              data-question="What companies are hiring in Noida?"
-            >
+            <button class="example" data-question="What companies are hiring in Noida?">
               💼 What companies are hiring in Noida?
             </button>
-
-            <button
-              class="example"
-              data-question="What jobs are related to backend development?"
-            >
+            <button class="example" data-question="What jobs are related to backend development?">
               💻 What jobs are related to backend development?
             </button>
-
-            <button
-              class="example"
-              data-question="Help me prepare for a Java backend interview"
-            >
+            <button class="example" data-question="Help me prepare for a Java backend interview">
               ☕ Help me prepare for a Java backend interview
             </button>
-
           </div>
-
         </div>
 
       </section>
 
-
-      <!-- Input -->
+      <!-- Input area -->
       <div class="input-area">
-
         <div class="input-wrapper">
-
-          <textarea
-            id="questionInput"
-            placeholder="Ask your Personal Brain..."
-            rows="1"
-          ></textarea>
-
-          <button
-            id="sendButton"
-            class="send-button"
-            title="Send"
-          >
-            ➤
+          <textarea id="questionInput" placeholder="Ask your Personal Brain..." rows="1" autocomplete="off" autofocus></textarea>
+          <button id="sendButton" class="send-button" title="Send Question" aria-label="Send">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
           </button>
-
         </div>
-
         <p class="input-hint">
-          Answers are generated from your connected
-          Gmail and Google Drive data.
+          Answers are generated securely from your personal Gmail & Drive documents.
         </p>
-
       </div>
 
     </main>
 
   </div>
 
+  <!-- Toast Container -->
+  <div id="toastContainer" class="toast-container"></div>
 
   <script src="app.js"></script>
 
