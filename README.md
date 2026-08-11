@@ -1,5 +1,7 @@
 # bun-react-template
 
+**Live demo:** [personal-brain-priyanshu-b0aa.vercel.app](https://personal-brain-priyanshu-b0aa.vercel.app)
+
 To install dependencies:
 
 ```bash
