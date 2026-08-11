@@ -8,7 +8,33 @@ const brainRoutes = new Hono();
 
 let syncRunning = false;
 
+const BUSY_MESSAGE =
+  "Personal Brain is currently syncing or busy with another request. Please try again in a moment.";
+
 /*
+ * Errors whose messages are already written to be shown
+ * directly to the end user (as opposed to raw CLI/library
+ * error text, which shouldn't leak to the client).
+ */
+const USER_SAFE_ERROR_MESSAGES = new Set([
+  BUSY_MESSAGE,
+  "The local model (Ollama) did not respond in time. It may be stuck or overloaded — try restarting Ollama and asking again.",
+]);
+
+function userSafeErrorMessage(
+  error: unknown
+): string | null {
+  if (
+    error instanceof Error &&
+    USER_SAFE_ERROR_MESSAGES.has(error.message)
+  ) {
+    return error.message;
+  }
+
+  return null;
+}
+
+/**
  * Start background brain synchronization.
  */
 brainRoutes.post("/sync", async (c) => {
@@ -72,7 +98,7 @@ brainRoutes.post("/sync", async (c) => {
   });
 });
 
-/*
+/**
  * Check whether a brain synchronization
  * is currently running.
  */
@@ -85,7 +111,7 @@ brainRoutes.get(
   }
 );
 
-/*
+/**
  * Ask the Personal Brain a question.
  *
  * Example:
@@ -118,6 +144,16 @@ brainRoutes.get("/ask", async (c) => {
       error
     );
 
+    const safeMessage =
+      userSafeErrorMessage(error);
+
+    if (safeMessage) {
+      return c.json(
+        { error: safeMessage },
+        503
+      );
+    }
+
     return c.json(
       {
         error:
@@ -128,7 +164,7 @@ brainRoutes.get("/ask", async (c) => {
   }
 });
 
-/*
+/**
  * Search the Personal Brain.
  *
  * Example:
@@ -167,6 +203,16 @@ brainRoutes.get(
         "Brain search failed:",
         error
       );
+
+      const safeMessage =
+        userSafeErrorMessage(error);
+
+      if (safeMessage) {
+        return c.json(
+          { error: safeMessage },
+          503
+        );
+      }
 
       return c.json(
         {

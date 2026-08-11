@@ -784,6 +784,12 @@
     border: 1px solid rgba(16, 185, 129, 0.2);
   }
   
+  .source-type-pill.slack {
+    background-color: rgba(168, 85, 247, 0.12);
+    color: #c084fc;
+    border: 1px solid rgba(168, 85, 247, 0.2);
+  }
+
   .source-type-pill.unknown {
     background-color: rgba(107, 114, 128, 0.12);
     color: #9ca3af;
@@ -887,7 +893,19 @@
   .pulse-bubble-1 { animation: pulseBubble 1s infinite 0s; }
   .pulse-bubble-2 { animation: pulseBubble 1s infinite 0.2s; }
   .pulse-bubble-3 { animation: pulseBubble 1s infinite 0.4s; }
-  
+
+  .loading-text {
+    transition: opacity 0.2s ease;
+  }
+
+  .loading-elapsed {
+    margin-left: auto;
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+    opacity: 0.6;
+  }
+
   /* Error Container */
   .error-box {
     display: flex;

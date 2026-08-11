@@ -5,7 +5,7 @@ import {
 
 export interface BrainSource {
   id: string;
-  source: "gmail" | "drive";
+  source: "gmail" | "drive" | "slack";
   title: string;
   score: number;
 }
@@ -14,6 +14,63 @@ export interface BrainAnswerResponse {
   query: string;
   answer: string;
   sources: BrainSource[];
+}
+
+/*
+ * Observed worst-case generation time for multi-source
+ * answers on CPU-only hardware is ~200s. Cap comfortably
+ * above that (well under the frontend's own 8-minute
+ * abort) so a genuine Ollama hang fails with a clear
+ * server-side error instead of silently stalling until
+ * the client eventually gives up.
+ */
+const OLLAMA_TIMEOUT_MS = 5 * 60 * 1000;
+
+const STOPWORDS = new Set([
+  "a", "an", "the", "and", "or", "but", "if", "of", "on", "in", "at",
+  "to", "for", "with", "about", "from", "by", "as", "is", "are", "was",
+  "were", "be", "been", "being", "did", "do", "does", "i", "my", "me",
+  "you", "your", "he", "she", "it", "we", "they", "them", "this", "that",
+  "these", "those", "what", "what's", "whats", "who", "when", "where",
+  "why", "how", "have", "has", "had", "will", "would", "can", "could",
+  "should", "ever", "any", "all", "each", "some", "including", "each",
+  "status", "find", "show", "list", "tell", "give", "up", "on",
+]);
+
+function extractKeywords(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter(
+        (word) =>
+          word.length >= 3 && !STOPWORDS.has(word)
+      )
+  );
+}
+
+/*
+ * Proper nouns (names, companies, products) are the
+ * highest-signal terms in a question like "Did I send
+ * Priya the contract draft?" or "email from Stripe" —
+ * generic verbs like "send"/"reply"/"draft" show up
+ * incidentally in unrelated technical content and are
+ * too weak a signal on their own.
+ *
+ * Extracted from the ORIGINAL (non-lowercased) query,
+ * skipping the first word since sentence-initial
+ * capitalization isn't meaningful.
+ */
+function extractProperNouns(query: string): string[] {
+  const words = query.split(/\s+/);
+
+  return words
+    .slice(1)
+    .map((word) => word.replace(/[^a-zA-Z]/g, ""))
+    .filter(
+      (word) => /^[A-Z][a-z]+$/.test(word)
+    )
+    .map((word) => word.toLowerCase());
 }
 
 export class BrainAnswerService {
@@ -73,6 +130,62 @@ export class BrainAnswerService {
     const answerResults =
       this.selectAnswerResults(results);
 
+    /*
+     * Retrieval can return results with a high similarity
+     * score that are still topically unrelated to the
+     * question (e.g. an unrelated automation-tool file
+     * scoring "close" to a query about a person's name).
+     * Small local models are not reliable at refusing to
+     * answer from such noise, so gate on it deterministically:
+     * if none of the query's meaningful terms appear anywhere
+     * in the selected evidence, don't ask the LLM at all.
+     */
+    const properNouns = extractProperNouns(query);
+
+    const evidenceText = answerResults
+      .map((result) => `${result.title} ${result.content}`)
+      .join(" ");
+
+    const hasRelevantEvidence =
+      properNouns.length > 0
+        ? /*
+           * Named entities are the strongest signal: if the
+           * question is specifically about "Priya" or "Stripe"
+           * and neither name appears anywhere in the retrieved
+           * evidence, generic word overlap isn't enough to
+           * trust the match.
+           */
+          properNouns.some((noun) => {
+            const resultKeywords = extractKeywords(evidenceText);
+
+            return resultKeywords.has(noun);
+          })
+        : (() => {
+            const queryKeywords = extractKeywords(query);
+            const resultKeywords = extractKeywords(evidenceText);
+
+            if (queryKeywords.size === 0) {
+              return true;
+            }
+
+            for (const keyword of queryKeywords) {
+              if (resultKeywords.has(keyword)) {
+                return true;
+              }
+            }
+
+            return false;
+          })();
+
+    if (!hasRelevantEvidence) {
+      return {
+        query,
+        answer:
+          "I couldn't find enough relevant information in your Personal Brain to answer that.",
+        sources: [],
+      };
+    }
+
     console.log(
       "Brain answer sources:",
       answerResults.map(
@@ -96,7 +209,7 @@ export class BrainAnswerService {
     return {
       query,
       answer,
-      sources: results.map(
+      sources: answerResults.map(
         (result) => ({
           id: result.id,
           source: result.source,
@@ -257,8 +370,19 @@ ${context}
 Now answer the USER QUESTION directly.
 `;
 
-    const response =
-      await fetch(
+    /*
+     * Ollama can occasionally hang indefinitely under CPU
+     * contention (observed: no response at all to a trivial
+     * prompt). The brain query routes intentionally have no
+     * server-level idle timeout so slow-but-working answers
+     * aren't killed prematurely, so this call needs its own
+     * generous-but-finite cap or a genuine hang would never
+     * surface as anything but "stuck forever" to the client.
+     */
+    let response: Response;
+
+    try {
+      response = await fetch(
         "http://localhost:11434/api/generate",
         {
           method: "POST",
@@ -274,8 +398,23 @@ Now answer the USER QUESTION directly.
               temperature: 0.1,
             },
           }),
+          signal: AbortSignal.timeout(
+            OLLAMA_TIMEOUT_MS
+          ),
         }
       );
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.name === "TimeoutError"
+      ) {
+        throw new Error(
+          "The local model (Ollama) did not respond in time. It may be stuck or overloaded — try restarting Ollama and asking again."
+        );
+      }
+
+      throw error;
+    }
 
     if (!response.ok) {
       const errorText =

@@ -22,7 +22,34 @@ function findHeader(
   )?.value ?? undefined;
 }
 
-function extractBody(
+function extractPlainTextBody(
+  payload?: gmail_v1.Schema$MessagePart
+): string {
+  if (!payload) {
+    return "";
+  }
+
+  if (
+    payload.body?.data &&
+    (payload.mimeType ?? "") === "text/plain"
+  ) {
+    return decodeBase64Url(payload.body.data);
+  }
+
+  if (payload.parts) {
+    for (const part of payload.parts) {
+      const result = extractPlainTextBody(part);
+
+      if (result) {
+        return result;
+      }
+    }
+  }
+
+  return "";
+}
+
+function extractAnyBody(
   payload?: gmail_v1.Schema$MessagePart
 ): string {
   if (!payload) {
@@ -35,7 +62,7 @@ function extractBody(
 
   if (payload.parts) {
     for (const part of payload.parts) {
-      const result = extractBody(part);
+      const result = extractAnyBody(part);
 
       if (result) {
         return result;
@@ -44,6 +71,21 @@ function extractBody(
   }
 
   return "";
+}
+
+/**
+ * Prefer text/plain content (matches gmailService's
+ * query-time enrichment) so ingested/embedded content
+ * doesn't diverge from what's shown when a result is
+ * enriched. Falls back to any available body.
+ */
+function extractBody(
+  payload?: gmail_v1.Schema$MessagePart
+): string {
+  return (
+    extractPlainTextBody(payload) ||
+    extractAnyBody(payload)
+  );
 }
 
 export interface ParsedGmailMessage {

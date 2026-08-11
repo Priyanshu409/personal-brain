@@ -35,10 +35,10 @@ Version 1 supports:
 
 - Gmail
 - Google Drive
+- Slack (direct messages and group DMs)
 
 Future connectors may include:
 
-- Slack
 - Notion
 - Google Calendar
 
@@ -152,7 +152,7 @@ where practical.
 ## 7. Architecture
 
 ```text
-React UI
+Web UI (HTML/CSS/vanilla JS)
    |
    v
 API Server

@@ -10,6 +10,19 @@ import { createGmailClient } from "../services/gmailService";
 
 import { parseGmailMessage } from "../utils/gmailParser";
 
+/*
+ * A single Gmail list page tops out at 500 messages, and
+ * fetching each message's full body is one request each,
+ * so an unbounded sync of a large mailbox could take a
+ * very long time / burn a lot of quota. Cap total messages
+ * synced per run at a generous but finite number instead of
+ * a single 50-message page (which silently ignored the rest
+ * of the mailbox entirely).
+ */
+const MAX_GMAIL_SYNC_MESSAGES = Number(
+  process.env.GMAIL_SYNC_MAX_MESSAGES ?? 1000
+);
+
 export class GmailConnector
   implements PersonalDataConnector
 {
@@ -20,35 +33,56 @@ export class GmailConnector
   async sync(): Promise<BrainDocument[]> {
     const gmail = await createGmailClient();
 
-    const response = await gmail.users.messages.list({
-      userId: "me",
-      maxResults: 50,
-    });
-
-    const messages = response.data.messages ?? [];
-
     const documents: BrainDocument[] = [];
 
-    for (const message of messages) {
-      if (!message.id) {
-        continue;
-      }
+    let pageToken: string | undefined;
 
-      const fullMessage =
-        await gmail.users.messages.get({
+    do {
+      const response =
+        await gmail.users.messages.list({
           userId: "me",
-          id: message.id,
-          format: "full",
+          maxResults: 100,
+          pageToken,
         });
 
-      const parsed = parseGmailMessage(
-        fullMessage.data
-      );
+      const messages =
+        response.data.messages ?? [];
 
-      documents.push(
-        toBrainDocument(parsed)
+      for (const message of messages) {
+        if (!message.id) {
+          continue;
+        }
+
+        if (
+          documents.length >=
+          MAX_GMAIL_SYNC_MESSAGES
+        ) {
+          break;
+        }
+
+        const fullMessage =
+          await gmail.users.messages.get({
+            userId: "me",
+            id: message.id,
+            format: "full",
+          });
+
+        const parsed = parseGmailMessage(
+          fullMessage.data
         );
-    }
+
+        documents.push(
+          toBrainDocument(parsed)
+        );
+      }
+
+      pageToken =
+        response.data.nextPageToken ??
+        undefined;
+    } while (
+      pageToken &&
+      documents.length < MAX_GMAIL_SYNC_MESSAGES
+    );
 
     return documents;
   }

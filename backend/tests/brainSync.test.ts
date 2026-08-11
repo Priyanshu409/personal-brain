@@ -80,10 +80,19 @@ describe("BrainSyncService", () => {
       },
     };
 
+    let embedStaleCalls = 0;
+
+    const embedder = {
+      async embedStale(): Promise<void> {
+        embedStaleCalls++;
+      },
+    };
+
     const syncService =
       new BrainSyncService(
         connectors,
-        ingestion
+        ingestion,
+        embedder
       );
 
     const results =
@@ -106,6 +115,8 @@ describe("BrainSyncService", () => {
     expect(
       ingestedDocuments
     ).toHaveLength(3);
+
+    expect(embedStaleCalls).toBe(1);
   });
 
   test("returns zero counts when sources are empty", async () => {
@@ -134,10 +145,19 @@ describe("BrainSyncService", () => {
       },
     };
 
+    let embedStaleCalls = 0;
+
+    const embedder = {
+      async embedStale(): Promise<void> {
+        embedStaleCalls++;
+      },
+    };
+
     const syncService =
       new BrainSyncService(
         connectors,
-        ingestion
+        ingestion,
+        embedder
       );
 
     const results =
@@ -155,6 +175,12 @@ describe("BrainSyncService", () => {
         ingested: 0,
       },
     ]);
+
+    /*
+     * Nothing was ingested, so re-embedding
+     * would be wasted work.
+     */
+    expect(embedStaleCalls).toBe(0);
   });
 
   test("preserves source-specific document counts", async () => {
@@ -205,10 +231,15 @@ describe("BrainSyncService", () => {
       },
     };
 
+    const embedder = {
+      async embedStale(): Promise<void> {},
+    };
+
     const syncService =
       new BrainSyncService(
         connectors,
-        ingestion
+        ingestion,
+        embedder
       );
 
     const results =

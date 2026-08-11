@@ -3,23 +3,24 @@
 ## System Overview
 
 ```text
-                    +----------------+
-                    |    React UI    |
-                    +-------+--------+
-                            |
-                            | HTTP
-                            v
+                  +-----------------------+
+                  | Web UI (HTML/CSS/JS)  |
+                  +-----------+-----------+
+                              |
+                              | HTTP
+                              v
                   +---------+---------+
                   |   API Server      |
                   | Bun + TypeScript  |
                   +---------+---------+
                             |
-          +-----------------+-----------------+
-          |                 |                 |
-          v                 v                 v
-     Gmail Service    Drive Service      Brain Service
-          |                 |                 |
-          +-----------------+-----------------+
+          +--------+--------+--------+
+          |        |        |        |
+          v        v        v        v
+     Gmail       Drive     Slack   Brain
+     Service     Service   Service Service
+          |        |        |        |
+          +--------+--------+--------+
                             |
                             v
                         GBrain
