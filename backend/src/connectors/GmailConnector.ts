@@ -30,10 +30,20 @@ export class GmailConnector
     return "gmail";
   }
 
+  /*
+   * `users.messages.list` with no labelIds/q filter already
+   * returns mail across Inbox, Sent, and any other labels
+   * (it only excludes Spam/Trash, which need
+   * includeSpamTrash: true). Drafts are the one folder it
+   * never includes — a draft only shows up via the separate
+   * Drafts API — so they're fetched explicitly below and
+   * merged in.
+   */
   async sync(): Promise<BrainDocument[]> {
     const gmail = await createGmailClient();
 
     const documents: BrainDocument[] = [];
+    const seenMessageIds = new Set<string>();
 
     let pageToken: string | undefined;
 
@@ -71,6 +81,8 @@ export class GmailConnector
           fullMessage.data
         );
 
+        seenMessageIds.add(message.id);
+
         documents.push(
           toBrainDocument(parsed)
         );
@@ -82,6 +94,84 @@ export class GmailConnector
     } while (
       pageToken &&
       documents.length < MAX_GMAIL_SYNC_MESSAGES
+    );
+
+    if (documents.length < MAX_GMAIL_SYNC_MESSAGES) {
+      const draftDocuments = await this.syncDrafts(
+        gmail,
+        seenMessageIds,
+        MAX_GMAIL_SYNC_MESSAGES - documents.length
+      );
+
+      documents.push(...draftDocuments);
+    }
+
+    return documents;
+  }
+
+  /**
+   * Fetch Gmail drafts and normalize them the same way as
+   * regular messages, tagging each as a draft so the LLM
+   * can distinguish "drafted but never sent" from "sent".
+   */
+  private async syncDrafts(
+    gmail: gmail_v1.Gmail,
+    seenMessageIds: Set<string>,
+    remainingCapacity: number
+  ): Promise<BrainDocument[]> {
+    const documents: BrainDocument[] = [];
+
+    let pageToken: string | undefined;
+
+    do {
+      const response = await gmail.users.drafts.list({
+        userId: "me",
+        maxResults: 100,
+        pageToken,
+      });
+
+      const drafts = response.data.drafts ?? [];
+
+      for (const draft of drafts) {
+        const messageId = draft.message?.id;
+
+        if (
+          !messageId ||
+          seenMessageIds.has(messageId)
+        ) {
+          continue;
+        }
+
+        if (documents.length >= remainingCapacity) {
+          break;
+        }
+
+        const fullMessage =
+          await gmail.users.messages.get({
+            userId: "me",
+            id: messageId,
+            format: "full",
+          });
+
+        const parsed = parseGmailMessage(
+          fullMessage.data
+        );
+
+        seenMessageIds.add(messageId);
+
+        documents.push(
+          toBrainDocument({
+            ...parsed,
+            subject: `[Draft] ${parsed.subject}`,
+          })
+        );
+      }
+
+      pageToken =
+        response.data.nextPageToken ?? undefined;
+    } while (
+      pageToken &&
+      documents.length < remainingCapacity
     );
 
     return documents;

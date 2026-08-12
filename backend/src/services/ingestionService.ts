@@ -27,8 +27,22 @@ export class IngestionService {
     let count = 0;
 
     for (const document of documents) {
-      await this.ingest(document);
-      count++;
+      try {
+        await this.ingest(document);
+        count++;
+      } catch (error) {
+        /*
+         * One malformed document (e.g. missing title)
+         * shouldn't abort the rest of the batch, since
+         * BrainSyncService runs connectors sequentially
+         * and an uncaught error here would silently skip
+         * every connector after this one for the whole run.
+         */
+        console.warn(
+          `Skipping document that failed to ingest: ${document.id}`,
+          error
+        );
+      }
     }
 
     return count;

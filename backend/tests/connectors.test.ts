@@ -90,8 +90,21 @@ const gmailMessages = [
   },
 ];
 
+const gmailDrafts: Array<{
+  id: string;
+  message: { id: string };
+}> = [];
+
 const fakeGmailClient = {
   users: {
+    drafts: {
+      list: async () => ({
+        data: {
+          drafts: gmailDrafts,
+        },
+      }),
+    },
+
     messages: {
       list: async (options: {
         userId: string;
@@ -101,6 +114,15 @@ const fakeGmailClient = {
         gmailState.lastSearchQuery =
           options.q ?? "";
 
+        /*
+         * Real Gmail's messages.list never includes
+         * drafts, so the fake filters them out the same
+         * way to accurately model that behavior.
+         */
+        const draftMessageIds = new Set(
+          gmailDrafts.map((draft) => draft.message.id)
+        );
+
         return {
           data: {
             messages: options.q
@@ -109,9 +131,14 @@ const fakeGmailClient = {
                     id: "gmail-001",
                   },
                 ]
-              : gmailMessages.map((message) => ({
-                  id: message.id,
-                })),
+              : gmailMessages
+                  .filter(
+                    (message) =>
+                      !draftMessageIds.has(message.id)
+                  )
+                  .map((message) => ({
+                    id: message.id,
+                  })),
           },
         };
       },
@@ -289,6 +316,123 @@ describe("GmailConnector", () => {
     expect(connector.getName()).toBe(
       "gmail"
     );
+  });
+
+  test("includes Gmail drafts alongside Inbox/Sent messages, tagged as a draft", async () => {
+    gmailMessages.push({
+      id: "gmail-draft-001",
+      threadId: "thread-draft-001",
+      payload: {
+        headers: [
+          {
+            name: "Subject",
+            value: "Contract",
+          },
+          {
+            name: "From",
+            value: "me@example.com",
+          },
+          {
+            name: "To",
+            value: "priya@example.com",
+          },
+          {
+            name: "Date",
+            value: "Wed, 12 Aug 2026 09:00:00 +0000",
+          },
+        ],
+        body: {
+          data: Buffer.from("Draft contract body")
+            .toString("base64")
+            .replace(/\+/g, "-")
+            .replace(/\//g, "_")
+            .replace(/=+$/, ""),
+        },
+      },
+    });
+
+    gmailDrafts.push({
+      id: "draft-001",
+      message: {
+        id: "gmail-draft-001",
+      },
+    });
+
+    try {
+      const connector = new GmailConnector();
+
+      const documents = await connector.sync();
+
+      const draftDocument = documents.find(
+        (document) =>
+          document.id === "gmail:gmail-draft-001"
+      );
+
+      expect(draftDocument).toBeDefined();
+      expect(draftDocument?.title).toBe(
+        "[Draft] Contract"
+      );
+
+      // Inbox/Sent messages are still present alongside the draft.
+      expect(documents).toHaveLength(3);
+    } finally {
+      gmailDrafts.length = 0;
+      gmailMessages.pop();
+    }
+  });
+
+  test("falls back to a placeholder title when the Subject header is present but empty", async () => {
+    const originalMessages = [...gmailMessages];
+
+    gmailMessages.push({
+      id: "gmail-003",
+      threadId: "thread-003",
+      payload: {
+        headers: [
+          {
+            name: "Subject",
+            value: "",
+          },
+          {
+            name: "From",
+            value: "noreply@example.com",
+          },
+          {
+            name: "To",
+            value: "candidate@example.com",
+          },
+          {
+            name: "Date",
+            value: "Wed, 12 Aug 2026 09:00:00 +0000",
+          },
+        ],
+        body: {
+          data: Buffer.from("No subject body")
+            .toString("base64")
+            .replace(/\+/g, "-")
+            .replace(/\//g, "_")
+            .replace(/=+$/, ""),
+        },
+      },
+    });
+
+    try {
+      const connector = new GmailConnector();
+
+      const documents = await connector.sync();
+
+      const emptySubjectDocument = documents.find(
+        (document) => document.id === "gmail:gmail-003"
+      );
+
+      expect(emptySubjectDocument).toBeDefined();
+      expect(emptySubjectDocument?.title).toBe(
+        "(No subject)"
+      );
+    } finally {
+      gmailMessages.length = 0;
+      gmailMessages.push(...originalMessages);
+    }
   });
 });
 
