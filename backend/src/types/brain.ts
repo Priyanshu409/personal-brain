@@ -1,4 +1,4 @@
-export type BrainSource = "gmail" | "drive";
+export type BrainSource = "gmail" | "drive" | "slack";
 
 export interface BrainDocument {
   id: string;

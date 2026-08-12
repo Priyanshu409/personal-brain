@@ -17,6 +17,15 @@ export function generateGoogleAuthorizationUrl(state: string): string {
 
   return oauth2Client.generateAuthUrl({
     access_type: "offline",
+    /*
+     * Google only returns a refresh_token on the first
+     * consent grant. Forcing the consent screen here
+     * ensures re-authorizing (e.g. after tokens are
+     * cleared or revoked) always yields a fresh
+     * refresh_token instead of an access-token-only
+     * grant that silently expires within the hour.
+     */
+    prompt: "consent",
     scope: config.scopes,
     state,
     include_granted_scopes: true,

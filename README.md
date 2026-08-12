@@ -1,46 +1,23 @@
-# Personal Brain
+# bun-react-template
 
-> A conversational AI over my personal Gmail and Google Drive data.
+**Live demo:** [personal-brain-priyanshu-b0aa.vercel.app](https://personal-brain-priyanshu-b0aa.vercel.app)
 
-## Status
+To install dependencies:
 
-🚧 Under development
+```bash
+bun install
+```
 
-## Problem
+To start a development server:
 
-Personal information is distributed across multiple applications.
-This project creates a conversational interface that can retrieve,
-correlate and reason over information from multiple personal sources.
+```bash
+bun dev
+```
 
-## Architecture
+To run for production:
 
-See [Architecture](docs/ARCHITECTURE.md).
+```bash
+bun start
+```
 
-## Specification
-
-See [SDD Specification](docs/SPEC.md).
-
-## Planned Connectors
-
-- Gmail
-- Google Drive
-
-## Planned Features
-
-- Google OAuth
-- Source ingestion
-- GBrain knowledge storage
-- Hybrid retrieval
-- Cross-source reasoning
-- Grounded responses
-- Source citations
-- Conversational UI
-
-## Development
-
-Coming soon.
-
-## Security
-
-OAuth credentials, access tokens and personal data are never committed
-to the repository.
+This project was created using `bun init` in bun v1.3.14. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.

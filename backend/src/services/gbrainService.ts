@@ -23,6 +23,13 @@ import {
   getDriveFileContent,
 } from "./driveService";
 
+import {
+  createSlackClient,
+  getSlackMessageContent,
+} from "./slackService";
+
+import { decodeSlackDocumentId } from "../connectors/slackDocumentMapper";
+
 export class GBrainService {
   private readonly gbrainCommand = "gbrain";
 
@@ -60,20 +67,39 @@ export class GBrainService {
 
       child.on("close", (code) => {
         if (code !== 0) {
+          const output = stderr || stdout;
+
+          /*
+           * GBrain holds an exclusive lock on its data
+           * directory. If a sync/embed run overlaps with
+           * a query, the query blocks and eventually fails
+           * here rather than hanging indefinitely for the
+           * caller — surface that plainly instead of a raw
+           * CLI error.
+           */
+          if (output.includes("data-dir lock")) {
+            reject(
+              new Error(
+                "Personal Brain is currently syncing or busy with another request. Please try again in a moment."
+              )
+            );
+
+            return;
+          }
+
           reject(
             new Error(
-              `GBrain command failed (${code}): ${
-                stderr || stdout
-              }`
+              `GBrain command failed (${code}): ${output}`
             )
           );
+
           return;
         }
 
         resolve(stdout.trim());
       });
     });
-}
+  }
 
   /**
    * Search the local GBrain and enrich
@@ -90,13 +116,28 @@ export class GBrainService {
       throw new Error("Search query is required");
     }
 
+    /*
+     * IMPORTANT:
+     *
+     * GBrain's working CLI command is:
+     *
+     * gbrain query "some query"
+     *
+     * NOT:
+     *
+     * gbrain search "some query"
+     */
     const raw = await this.run([
-      "search",
+      "query",
       query,
     ]);
 
     const results = this.parseResults(raw);
 
+    /*
+     * Enrich results with the actual Gmail/Drive/Slack
+     * content.
+     */
     const gmail = await createGmailClient();
     const drive = await createDriveClient();
 
@@ -116,6 +157,31 @@ export class GBrainService {
               gmail,
               messageId
             );
+        }
+
+        /*
+         * Slack enrichment
+         *
+         * The Slack client is created lazily here (rather
+         * than eagerly like Gmail/Drive above) so that
+         * users who haven't configured SLACK_USER_TOKEN
+         * don't break Gmail/Drive-only searches.
+         */
+        if (result.source === "slack") {
+          const decoded = decodeSlackDocumentId(
+            result.id
+          );
+
+          if (decoded) {
+            const slack = createSlackClient();
+
+            result.content =
+              await getSlackMessageContent(
+                slack,
+                decoded.channelId,
+                decoded.ts
+              );
+          }
         }
 
         /*
@@ -179,11 +245,13 @@ export class GBrainService {
             );
 
             const escapedTitle =
-              result.title.replace(
-                /'/g,
-                "\\'"
-              );
+              result.title
+                .replace(/\\/g, "\\\\")
+                .replace(/'/g, "\\'");
 
+            /*
+             * First search files in root.
+             */
             const lookup =
               await drive.files.list({
                 q: `'root' in parents and name = '${escapedTitle}' and trashed = false`,
@@ -230,6 +298,7 @@ export class GBrainService {
               );
 
               result.content = "";
+
               continue;
             }
 
@@ -268,7 +337,11 @@ export class GBrainService {
   }
 
   /**
-   * Parse GBrain CLI search output.
+   * Parse GBrain CLI query output.
+   *
+   * Example:
+   *
+   * [0.9841] drive/drive-123 -- # Noida Jobs
    */
   private parseResults(
     raw: string
@@ -305,7 +378,9 @@ export class GBrainService {
           ? "gmail"
           : id.startsWith("drive/")
             ? "drive"
-            : null;
+            : id.startsWith("slack/")
+              ? "slack"
+              : null;
 
       if (!source) {
         continue;
@@ -388,15 +463,29 @@ export class GBrainService {
   }
 
   /**
+   * Generate embeddings for any documents imported
+   * with `--no-embed` since their last embedding run.
+   *
+   * Without this, newly ingested documents are stored
+   * in GBrain but never become searchable.
+   */
+  async embedStale(): Promise<void> {
+    await this.run(["embed", "--stale"]);
+  }
+
+  /**
    * Convert an ID into a safe filename.
+   *
+   * Case is preserved: Google Drive/Gmail IDs are
+   * case-sensitive, and search() relies on the ID
+   * embedded here to look the file up directly.
    */
   private safeFileName(
     value: string
   ): string {
     return value
-      .toLowerCase()
       .replace(
-        /[^a-z0-9_-]+/g,
+        /[^a-zA-Z0-9_-]+/g,
         "-"
       )
       .replace(

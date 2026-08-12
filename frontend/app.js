@@ -1,4 +1,27 @@
-const API_BASE_URL = "http://localhost:3000";
+/*
+ * Local dev talks directly to the local backend. Deployed builds
+ * go through an ngrok static domain tunneling to the locally-running
+ * backend (no hosted backend yet, since it depends on local Ollama).
+ * A static domain stays fixed across tunnel restarts, so unlike the
+ * old Cloudflare quick tunnel this shouldn't need updating here.
+ * Can be overridden at runtime via localStorage("apiBaseUrlOverride")
+ * without a redeploy, in case the tunnel ever does change.
+ */
+// const NGROK_STATIC_URL = "https://muck-recall-statute.ngrok-free.dev";
+// const isLocalHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+// const API_BASE_URL =
+//   localStorage.getItem("apiBaseUrlOverride") ||
+//   (isLocalHost ? "http://localhost:3000" : NGROK_STATIC_URL);
+
+const RENDER_API_URL = "https://personal-brain-api.onrender.com";
+
+const isLocalHost = ["localhost", "127.0.0.1"].includes(
+  window.location.hostname
+);
+
+const API_BASE_URL =
+  localStorage.getItem("apiBaseUrlOverride") ||
+  (isLocalHost ? "http://localhost:3000" : RENDER_API_URL);
 
 // Core UI Elements
 const chat = document.getElementById("chat");
@@ -260,6 +283,15 @@ function toggleMode(mode) {
 /* ==========================================
    INPUT SUBMIT & CONVERSATION LOGIC
    ========================================== */
+/*
+ * The backend has no timeout on /brain/ask and
+ * /brain/search — local CPU-only LLM inference on
+ * multi-source answers has been observed taking up
+ * to ~3 minutes. Give it real headroom rather than
+ * aborting a request that's still legitimately working.
+ */
+const ASK_TIMEOUT_MS = 8 * 60 * 1000;
+
 async function askBrain(question) {
   question = question.trim();
   if (!question) return;
@@ -269,36 +301,42 @@ async function askBrain(question) {
   resizeInput();
   removeWelcome();
 
-  const loadingMessage = addLoadingMessage();
+  const loadingMessage = addLoadingMessage(currentMode);
   sendButton.disabled = true;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    ASK_TIMEOUT_MS
+  );
 
   try {
     if (currentMode === "chat") {
       // AI Chat mode
       const url = `${API_BASE_URL}/brain/ask?q=${encodeURIComponent(question)}`;
-      const response = await fetch(url);
-      
+      const response = await fetch(url, { signal: controller.signal });
+
       if (!response.ok) {
         throw new Error(await getErrorMessage(response));
       }
-      
+
       const data = await response.json();
       loadingMessage.remove();
-      
+
       addAssistantMessage(data.answer, data.sources ?? []);
       saveToHistory(question);
     } else {
       // Direct Search mode
       const url = `${API_BASE_URL}/brain/search?q=${encodeURIComponent(question)}`;
-      const response = await fetch(url);
-      
+      const response = await fetch(url, { signal: controller.signal });
+
       if (!response.ok) {
         throw new Error(await getErrorMessage(response));
       }
-      
+
       const data = await response.json();
       loadingMessage.remove();
-      
+
       // The search response returns { query, result: { query, count, results: [...] } }
       const results = (data.result && data.result.results) ? data.result.results : (data.results ?? []);
       addSearchResultsMessage(results, question);
@@ -306,9 +344,13 @@ async function askBrain(question) {
     }
   } catch (error) {
     loadingMessage.remove();
-    addErrorMessage(error.message || "Something went wrong. Please check connection.");
-    showToast(error.message || "Failed to retrieve results", "error");
+    const message = error.name === "AbortError"
+      ? "The brain is taking much longer than usual (local model inference may be under heavy load). Please try again in a moment."
+      : (error.message || "Something went wrong. Please check connection.");
+    addErrorMessage(message);
+    showToast(message, "error");
   } finally {
+    clearTimeout(timeoutId);
     sendButton.disabled = false;
     input.focus();
   }
@@ -402,7 +444,7 @@ function addSearchResultsMessage(results, question) {
     html += `<div class="search-results-container">`;
     results.forEach(result => {
       const scorePercent = Math.round(Number(result.score) * 100);
-      const badgeClass = result.source === "gmail" ? "gmail" : (result.source === "drive" ? "drive" : "unknown");
+      const badgeClass = result.source === "gmail" ? "gmail" : (result.source === "drive" ? "drive" : (result.source === "slack" ? "slack" : "unknown"));
       const title = result.title || "Untitled File";
       const snippet = escapeHtml(result.content || "").substring(0, 320) + "...";
       
@@ -454,7 +496,7 @@ function addSources(container, sources) {
     const meta = document.createElement("div");
     meta.className = "source-meta";
     
-    const typeClass = source.source === "gmail" ? "gmail" : (source.source === "drive" ? "drive" : "unknown");
+    const typeClass = source.source === "gmail" ? "gmail" : (source.source === "drive" ? "drive" : (source.source === "slack" ? "slack" : "unknown"));
     const sourceLabel = source.source ? source.source.toUpperCase() : "UNKNOWN";
     
     meta.innerHTML = `<span class="source-type-pill ${typeClass}">${sourceLabel}</span>`;
@@ -479,17 +521,26 @@ function addSources(container, sources) {
   container.appendChild(sourcesContainer);
 }
 
-function addLoadingMessage() {
+const LOADING_STAGES = [
+  { afterSeconds: 0, chat: "Brain is analyzing files...", search: "Searching your documents..." },
+  { afterSeconds: 8, chat: "Still thinking — reasoning across sources...", search: "Still searching — this can take a moment..." },
+  { afterSeconds: 20, chat: "Generating your answer with the local model (can take a while on CPU)...", search: "Ranking matches..." },
+  { afterSeconds: 45, chat: "Still working — local inference is slower without a GPU, hang tight...", search: "Still working — hang tight..." },
+  { afterSeconds: 90, chat: "Still generating — cross-source answers can take a couple minutes on CPU...", search: "Still working — hang tight..." },
+  { afterSeconds: 150, chat: "Almost there — this is an unusually long one, thanks for your patience...", search: "Still working — hang tight..." },
+];
+
+function addLoadingMessage(mode = "chat") {
   const wrapper = document.createElement("div");
   wrapper.className = "message-wrapper assistant";
-  
+
   const avatar = document.createElement("div");
   avatar.className = "avatar";
   avatar.textContent = "🧠";
-  
+
   const container = document.createElement("div");
   container.className = "message-container";
-  
+
   const content = document.createElement("div");
   content.className = "message-content";
   content.innerHTML = `
@@ -499,17 +550,47 @@ function addLoadingMessage() {
         <div class="pulse-bubble pulse-bubble-2"></div>
         <div class="pulse-bubble pulse-bubble-3"></div>
       </div>
-      <span>Brain is analyzing files...</span>
+      <span class="loading-text">${LOADING_STAGES[0][mode]}</span>
+      <span class="loading-elapsed">0s</span>
     </div>
   `;
-  
+
   container.appendChild(content);
   wrapper.appendChild(avatar);
   wrapper.appendChild(container);
-  
+
   chat.appendChild(wrapper);
   scrollToBottom();
-  
+
+  const startedAt = Date.now();
+  const textEl = content.querySelector(".loading-text");
+  const elapsedEl = content.querySelector(".loading-elapsed");
+
+  const intervalId = setInterval(() => {
+    const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+
+    if (elapsedEl) {
+      elapsedEl.textContent = `${elapsedSeconds}s`;
+    }
+
+    if (textEl) {
+      const stage = [...LOADING_STAGES]
+        .reverse()
+        .find(s => elapsedSeconds >= s.afterSeconds);
+
+      if (stage) {
+        textEl.textContent = stage[mode] ?? stage.chat;
+      }
+    }
+  }, 1000);
+
+  // Stop updating once the message is removed from the chat
+  const originalRemove = wrapper.remove.bind(wrapper);
+  wrapper.remove = () => {
+    clearInterval(intervalId);
+    originalRemove();
+  };
+
   return wrapper;
 }
 

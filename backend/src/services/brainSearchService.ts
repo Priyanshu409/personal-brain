@@ -3,7 +3,7 @@ import { GBrainService } from "./gbrainService";
 export interface BrainSearchResult {
   score: number;
   id: string;
-  source: "gmail" | "drive";
+  source: "gmail" | "drive" | "slack";
   title: string;
   content: string;
 }
