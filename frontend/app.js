@@ -1,4 +1,27 @@
-const API_BASE_URL = "http://localhost:3000";
+/*
+ * Local dev talks directly to the local backend. Deployed builds
+ * go through an ngrok static domain tunneling to the locally-running
+ * backend (no hosted backend yet, since it depends on local Ollama).
+ * A static domain stays fixed across tunnel restarts, so unlike the
+ * old Cloudflare quick tunnel this shouldn't need updating here.
+ * Can be overridden at runtime via localStorage("apiBaseUrlOverride")
+ * without a redeploy, in case the tunnel ever does change.
+ */
+// const NGROK_STATIC_URL = "https://muck-recall-statute.ngrok-free.dev";
+// const isLocalHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+// const API_BASE_URL =
+//   localStorage.getItem("apiBaseUrlOverride") ||
+//   (isLocalHost ? "http://localhost:3000" : NGROK_STATIC_URL);
+
+const RENDER_API_URL = "https://personal-brain-api.onrender.com";
+
+const isLocalHost = ["localhost", "127.0.0.1"].includes(
+  window.location.hostname
+);
+
+const API_BASE_URL =
+  localStorage.getItem("apiBaseUrlOverride") ||
+  (isLocalHost ? "http://localhost:3000" : RENDER_API_URL);
 
 // Core UI Elements
 const chat = document.getElementById("chat");
