@@ -145,6 +145,55 @@ describe("Brain Ingestion", () => {
     ).toBe("002");
   });
 
+  test("skips a malformed document in ingestMany instead of aborting the batch", async () => {
+    const storedDocuments: BrainDocument[] = [];
+
+    const fakeBrain = {
+      async ingest(
+        document: BrainDocument
+      ): Promise<void> {
+        storedDocuments.push(document);
+      },
+    };
+
+    const ingestion =
+      new IngestionService(fakeBrain);
+
+    const documents: BrainDocument[] = [
+      {
+        id: "gmail:001",
+        source: "gmail",
+        title: "Good Email",
+        content: "Good email content",
+        metadata: {},
+      },
+      {
+        id: "gmail:002",
+        source: "gmail",
+        title: "   ",
+        content: "Missing title",
+        metadata: {},
+      },
+      {
+        id: "gmail:003",
+        source: "gmail",
+        title: "Another Good Email",
+        content: "Another good email content",
+        metadata: {},
+      },
+    ];
+
+    const count =
+      await ingestion.ingestMany(documents);
+
+    expect(count).toBe(2);
+    expect(storedDocuments).toHaveLength(2);
+
+    expect(
+      storedDocuments.map((document) => document.id)
+    ).toEqual(["gmail:001", "gmail:003"]);
+  });
+
   test("rejects a document without an id", async () => {
     const fakeBrain = {
       async ingest(

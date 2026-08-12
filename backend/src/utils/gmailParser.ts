@@ -108,7 +108,7 @@ export function parseGmailMessage(
     threadId: message.threadId ?? undefined,
 
     subject:
-      findHeader(headers, "Subject") ??
+      findHeader(headers, "Subject")?.trim() ||
       "(No subject)",
 
     from:

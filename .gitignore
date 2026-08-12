@@ -51,3 +51,5 @@ temp/
 
 # Local OAuth tokens
 .tokens/
+.vercel
+.env*
